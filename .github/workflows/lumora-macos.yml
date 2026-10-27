@@ -1,8 +1,8 @@
 name: 'Build Lumora for macOS'
 
-# Builds an unsigned Lumora installer (.pkg) on GitHub's macOS runners,
-# so no local Xcode or Qt install is needed. Download it from the run's
-# "Artifacts" section.
+# Builds Lumora.app (ad-hoc signed) on GitHub's macOS runners and zips it
+# with install.sh, so no local Xcode or Qt install is needed.
+# Download it from the run's "Artifacts" section.
 
 on:
   workflow_dispatch:
@@ -54,13 +54,13 @@ jobs:
         pip install "conan==2.28.0"
         brew list ninja >/dev/null 2>&1 || brew install ninja
 
-    - name: Build app and installer
+    - name: Build app
       env:
         QT_INSTALL_DIR: ${{ runner.temp }}
       shell: bash
       run: |
         set -o pipefail
-        deploy/build.sh --generator Ninja --installer productbuild 2>&1 | tee "$RUNNER_TEMP/build.log"
+        deploy/build.sh --generator Ninja 2>&1 | tee "$RUNNER_TEMP/build.log"
 
     # Surface the build errors as annotations, so they can be read through
     # the GitHub API without downloading the full log.
@@ -82,33 +82,33 @@ jobs:
           grep -v "^\s*$" "$pblog" | tail -n 30 | cut -c1-240 | enc | sed 's/^/::error title=pkgbuild log::/'; echo
         fi
 
-    # Always ship the bundled app on its own too, so there is something to
-    # run even if the installer step fails.
+    # Install into a staging folder (this runs macdeployqt, bundling Qt into
+    # the app), rename it Lumora.app, ad-hoc sign it so Apple Silicon Macs
+    # will launch it, and zip it with the install scripts.
     - name: Package the app
-      if: always()
       shell: bash
       run: |
-        app=$(find deploy/build/_CPack_Packages -name "AmneziaVPN.app" -type d -prune 2>/dev/null | head -1)
-        [ -n "$app" ] || app=$(find deploy/build/client -maxdepth 1 -name "AmneziaVPN.app" -type d | head -1)
+        set -e
+        stage="$RUNNER_TEMP/stage"
+        cmake --install deploy/build --prefix "$stage" 2>&1 | tail -20
+        app=$(find "$stage" -name "AmneziaVPN.app" -type d -prune | head -1)
         echo "App bundle: $app"
-        [ -n "$app" ] || exit 0
-        mkdir -p "$RUNNER_TEMP/out"
-        ditto "$app" "$RUNNER_TEMP/out/Lumora.app"
-        (cd "$RUNNER_TEMP/out" && ditto -c -k --keepParent Lumora.app Lumora-app.zip)
+        test -n "$app"
+        out="$RUNNER_TEMP/out/Lumora"
+        mkdir -p "$out"
+        ditto "$app" "$out/Lumora.app"
+        cp deploy/data/macos/AmneziaVPN.plist "$out/Lumora.app/Contents/Resources/" 2>/dev/null || true
+        codesign --force --deep --sign - "$out/Lumora.app"
+        codesign --verify --deep --strict "$out/Lumora.app" && echo "signature ok"
+        cp deploy/data/macos/lumora/install.sh deploy/data/macos/lumora/uninstall.sh "$out/"
+        chmod +x "$out/"*.sh
+        (cd "$RUNNER_TEMP/out" && ditto -c -k --keepParent Lumora Lumora-macOS.zip)
+        ls -la "$RUNNER_TEMP/out"
 
     - name: Upload app
-      if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: Lumora-macOS-app
-        path: ${{ runner.temp }}/out/Lumora-app.zip
-        if-no-files-found: ignore
-        retention-days: 30
-
-    - name: Upload installer
-      uses: actions/upload-artifact@v4
-      with:
-        name: Lumora-macOS-installer
-        path: deploy/build/*.pkg
+        name: Lumora-macOS
+        path: ${{ runner.temp }}/out/Lumora-macOS.zip
         if-no-files-found: error
         retention-days: 30
