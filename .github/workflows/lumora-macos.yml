@@ -77,6 +77,33 @@ jobs:
         head -n 20 "$RUNNER_TEMP/tail.txt" | enc | sed 's/^/::error title=Log tail 1 of 3::/'; echo
         sed -n 21,40p "$RUNNER_TEMP/tail.txt" | enc | sed 's/^/::error title=Log tail 2 of 3::/'; echo
         sed -n 41,60p "$RUNNER_TEMP/tail.txt" | enc | sed 's/^/::error title=Log tail 3 of 3::/'; echo
+        pblog=$(find deploy/build/_CPack_Packages -name ProductBuildOutput.log 2>/dev/null | head -1)
+        if [ -n "$pblog" ]; then
+          grep -v "^\s*$" "$pblog" | tail -n 30 | cut -c1-240 | enc | sed 's/^/::error title=pkgbuild log::/'; echo
+        fi
+
+    # Always ship the bundled app on its own too, so there is something to
+    # run even if the installer step fails.
+    - name: Package the app
+      if: always()
+      shell: bash
+      run: |
+        app=$(find deploy/build/_CPack_Packages -name "AmneziaVPN.app" -type d -prune 2>/dev/null | head -1)
+        [ -n "$app" ] || app=$(find deploy/build/client -maxdepth 1 -name "AmneziaVPN.app" -type d | head -1)
+        echo "App bundle: $app"
+        [ -n "$app" ] || exit 0
+        mkdir -p "$RUNNER_TEMP/out"
+        ditto "$app" "$RUNNER_TEMP/out/Lumora.app"
+        (cd "$RUNNER_TEMP/out" && ditto -c -k --keepParent Lumora.app Lumora-app.zip)
+
+    - name: Upload app
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: Lumora-macOS-app
+        path: ${{ runner.temp }}/out/Lumora-app.zip
+        if-no-files-found: ignore
+        retention-days: 30
 
     - name: Upload installer
       uses: actions/upload-artifact@v4
