@@ -73,8 +73,10 @@ jobs:
         enc() { sed -e 's/%/%25/g' | awk 'BEGIN{ORS="%0A"} {print}'; }
         errs=$(grep -nE "error:|CMake Error|FAILED:|fatal:|ERROR:|Error [0-9]+|No such file" "$log" | grep -v -- "-Werror" | head -40 | cut -c1-400 | enc)
         [ -n "$errs" ] && echo "::error title=Build errors::${errs}"
-        tailtxt=$(tail -n 80 "$log" | cut -c1-400 | enc)
-        echo "::error title=Build log tail::${tailtxt}"
+        grep -vE "warning|^\s*$|note:|\^|~~~" "$log" | tail -n 60 | cut -c1-240 > "$RUNNER_TEMP/tail.txt"
+        head -n 20 "$RUNNER_TEMP/tail.txt" | enc | sed 's/^/::error title=Log tail 1 of 3::/'; echo
+        sed -n 21,40p "$RUNNER_TEMP/tail.txt" | enc | sed 's/^/::error title=Log tail 2 of 3::/'; echo
+        sed -n 41,60p "$RUNNER_TEMP/tail.txt" | enc | sed 's/^/::error title=Log tail 3 of 3::/'; echo
 
     - name: Upload installer
       uses: actions/upload-artifact@v4
