@@ -62,7 +62,7 @@ Window  {
         console.warn("Scene graph error:", error, message)
     }
 
-    title: "AmneziaVPN"
+    title: "Lumora by Gab"
 
     Loader {
         active: Qt.platform.os === "android"
